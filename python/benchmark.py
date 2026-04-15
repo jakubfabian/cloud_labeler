@@ -120,7 +120,7 @@ def parse_size(s: str):
     return tuple(int(p) for p in parts)
 
 
-def run(sizes, reps_override, field):
+def run(sizes, reps_override, field, check_only=False):
     print()
     print("╔══════════════════════════════════════════════════════════════╗")
     print("║   Cloud Labeler Python Benchmark — Fortran vs Rust           ║")
@@ -132,9 +132,19 @@ def run(sizes, reps_override, field):
 
     # ── correctness check ──────────────────────────────────────────────────────
     print("\n── Correctness check (cross pattern) ────────────────────────────")
+    all_ok = True
     for s in sizes:
         cld = build_cross(*s)
-        check_agreement(cld, "x".join(map(str, s)))
+        ok = check_agreement(cld, "x".join(map(str, s)))
+        all_ok = all_ok and ok
+
+    if check_only:
+        if all_ok:
+            print("\nAll correctness checks passed.")
+            sys.exit(0)
+        else:
+            print("\nERROR: correctness check failed.", file=sys.stderr)
+            sys.exit(1)
 
     # ── timing ─────────────────────────────────────────────────────────────────
     print()
@@ -188,7 +198,10 @@ if __name__ == "__main__":
     parser.add_argument(
         "--field", choices=["cross", "random"], default="cross",
         help="Cloud field pattern (default: cross)")
+    parser.add_argument(
+        "--check-only", action="store_true",
+        help="Run correctness check only (no timing); exit 0 on pass, 1 on fail")
     args = parser.parse_args()
 
     sizes = [parse_size(s) for s in args.sizes]
-    run(sizes, args.reps, args.field)
+    run(sizes, args.reps, args.field, check_only=args.check_only)
