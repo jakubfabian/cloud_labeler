@@ -1,0 +1,91 @@
+name: Benchmarks
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+
+# Only one benchmark run at a time — serialise to keep gh-pages history clean.
+concurrency:
+  group: benchmarks
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    name: Run benchmarks and publish
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # needed to push to gh-pages
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y gfortran cmake
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Cargo registry + build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/target
+          key: rust-bench-${{ hashFiles('rust/Cargo.lock', 'rust/Cargo.toml') }}
+          restore-keys: rust-bench-
+
+      - name: Configure CMake (Release, native arch)
+        run: |
+          cmake -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DNATIVE_ARCH=ON \
+            -DFAST_MATH=ON \
+            -DENABLE_RUST=ON \
+            -DENABLE_PYTHON=OFF
+
+      - name: Build Fortran + Rust
+        run: cmake --build build --parallel
+        env:
+          RUSTFLAGS: "-C target-cpu=native"
+
+      # ── Rust Criterion benchmarks ─────────────────────────────────────────
+      - name: Run Rust Criterion benchmarks
+        working-directory: rust
+        run: |
+          cargo bench \
+            --bench labeler \
+            -- --output-format bencher 2>/dev/null || true
+          cargo bench --bench labeler
+        env:
+          RUSTFLAGS: "-C target-cpu=native"
+
+      # ── Fortran timing benchmark ──────────────────────────────────────────
+      - name: Run Fortran benchmark
+        run: ./build/bin/bench_cloud_label | tee /tmp/fortran_bench.txt
+
+      # ── Parse both outputs into the customSmallerIsBetter JSON format ─────
+      - name: Parse benchmark results
+        run: |
+          python3 scripts/parse_benchmarks.py \
+            --criterion-dir rust/target/criterion \
+            --fortran-log   /tmp/fortran_bench.txt \
+            --output        /tmp/benchmark_results.json
+          cat /tmp/benchmark_results.json
+
+      # ── Publish to gh-pages via benchmark-action ──────────────────────────
+      - name: Store benchmark result
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: Cloud Labeler Benchmarks
+          tool: customSmallerIsBetter
+          output-file-path: /tmp/benchmark_results.json
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          # Show alert in PR comments when performance regresses > 150%
+          alert-threshold: "150%"
+          comment-on-alert: true
+          fail-on-alert: false
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: dev/bench
