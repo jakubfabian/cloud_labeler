@@ -11,13 +11,23 @@ message(STATUS "Found cargo: ${CARGO_EXECUTABLE}")
 set(RUST_MANIFEST  ${CMAKE_CURRENT_SOURCE_DIR}/Cargo.toml)
 set(RUST_TARGET_DIR ${CMAKE_CURRENT_BINARY_DIR}/target)
 
+# ── RUSTFLAGS: propagate CMake optimization options into cargo ────────────────
+# NATIVE_ARCH → -C target-cpu=native  (LLVM equivalent of gfortran -march=native)
+# Cargo.toml [profile.release] handles lto and codegen-units independently.
+set(RUST_EXTRA_FLAGS "")
+if(NATIVE_ARCH)
+  set(RUST_EXTRA_FLAGS "-C target-cpu=native")
+  message(STATUS "Rust extra flags: ${RUST_EXTRA_FLAGS}")
+endif()
+
 # ── Rust library + demo binary (always built) ─────────────────────────────────
 add_custom_target(cloud_labeler_rust ALL
-  COMMAND ${CARGO_EXECUTABLE} build --release
+  COMMAND ${CMAKE_COMMAND} -E env "RUSTFLAGS=${RUST_EXTRA_FLAGS}"
+          ${CARGO_EXECUTABLE} build --release
           --manifest-path ${RUST_MANIFEST}
           --target-dir    ${RUST_TARGET_DIR}
   WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-  COMMENT "Building Rust cloud_labeler (release)"
+  COMMENT "Building Rust cloud_labeler (release, RUSTFLAGS=${RUST_EXTRA_FLAGS})"
 )
 
 install(PROGRAMS ${RUST_TARGET_DIR}/release/cloud_labeler
@@ -36,7 +46,8 @@ if(ENABLE_PYTHON)
 
   add_custom_target(cloud_labeler_rust_python ALL
     # Build with the python feature flag
-    COMMAND ${CARGO_EXECUTABLE} build --release --features python
+    COMMAND ${CMAKE_COMMAND} -E env "RUSTFLAGS=${RUST_EXTRA_FLAGS}"
+            ${CARGO_EXECUTABLE} build --release --features python
             --manifest-path ${RUST_MANIFEST}
             --target-dir    ${RUST_TARGET_DIR}
     # Copy + rename so Python can import it

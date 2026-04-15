@@ -11,6 +11,53 @@ set(CMAKE_Fortran_COMPILER   "gfortran")
 #set(CMAKE_Fortran_FLAGS "-cpp -ffree-line-length-none -g -fbacktrace -finit-real=nan -W -Wall -Wuninitialized -g -pg -fcheck=all -fbounds-check -pedantic -Wsurprising -ffpe-trap=invalid,zero,overflow -fno-range-check")
 ########################### Tenstream Project: ###################################
 project (cloud_label C Fortran)
+
+# ── Default build type ────────────────────────────────────────────────────────
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING
+      "Build type: Release | Debug | RelWithDebInfo | MinSizeRel" FORCE)
+  message(STATUS "CMAKE_BUILD_TYPE not set, defaulting to Release")
+endif()
+
+# ── Compiler optimizations ────────────────────────────────────────────────────
+#
+# NATIVE_ARCH (default ON)
+#   Fortran : -march=native -funroll-loops
+#             (gfortran equivalent of ifort/ifx -xHost)
+#   Rust    : RUSTFLAGS="-C target-cpu=native"
+#             (equivalent of Clang/LLVM -march=native)
+#
+# FAST_MATH (default OFF)
+#   Fortran : -Ofast  (replaces -O3; enables -ffast-math and related
+#             transforms — safe for pure-integer/boolean code, potentially
+#             unsafe for code with strict IEEE-754 float requirements)
+#   Rust    : -C opt-level=3 is unchanged; add "-C fast-math" for parity
+#             (Rust stabilised fast-math per-operation, not globally)
+#
+# These are independent of CMAKE_BUILD_TYPE and stack on top of whatever
+# flags that build type already provides.
+
+option(NATIVE_ARCH
+  "Optimise for the host CPU (gfortran: -march=native; Rust: target-cpu=native)"
+  ON)
+
+option(FAST_MATH
+  "Enable -Ofast for Fortran (unsafe IEEE-754, harmless for integer code)"
+  ON)
+
+set(_FORT_EXTRA "")
+if(NATIVE_ARCH)
+  list(APPEND _FORT_EXTRA "-march=native" "-funroll-loops")
+endif()
+if(FAST_MATH)
+  list(APPEND _FORT_EXTRA "-Ofast")
+endif()
+
+if(_FORT_EXTRA)
+  string(JOIN " " _FORT_EXTRA_STR ${_FORT_EXTRA})
+  set(CMAKE_Fortran_FLAGS "${CMAKE_Fortran_FLAGS} ${_FORT_EXTRA_STR}")
+  message(STATUS "Fortran extra flags: ${_FORT_EXTRA_STR}")
+endif()
 set(CTEST_CMAKE_GENERATOR "Unix Makefiles")
 
 
