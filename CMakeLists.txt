@@ -32,12 +32,23 @@ if (CMAKE_INSTALL_PREFIX_INITIALIZED_TO_DEFAULT)
 endif()
 
 # Add Source Directories
-add_subdirectory (src)
+add_subdirectory(src)
 
-option(ENABLE_PYTHON "Enable creation of Python Interfaces via f2py" OFF)
+# ── Rust implementation ───────────────────────────────────────────────────────
+option(ENABLE_RUST "Build the Rust cloud_labeler implementation" ON)
+if(ENABLE_RUST)
+  add_subdirectory(rust)
+endif()
+
+# ── Python interfaces (Fortran f2py + Rust PyO3) ──────────────────────────────
+option(ENABLE_PYTHON "Enable Python interfaces (f2py + Rust PyO3)" OFF)
 if(ENABLE_PYTHON)
   find_program(F2PY_PATH f2py REQUIRED)
   message(STATUS "Found f2py: ${F2PY_PATH}")
   add_custom_target(python_interface ALL)
-	add_subdirectory(python)
+  add_subdirectory(python)
+  if(ENABLE_RUST)
+    # Ensure benchmark can find both .so files in the same directory
+    message(STATUS "Python benchmark will be available at: ${CMAKE_BINARY_DIR}/python/benchmark.py")
+  endif()
 endif(ENABLE_PYTHON)
