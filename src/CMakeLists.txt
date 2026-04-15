@@ -12,6 +12,8 @@ target_link_libraries(cloud_label)
 add_executable( "test_cloud_label" "test.f90" )
 target_link_libraries( "test_cloud_label" cloud_label)
 
+add_executable( "bench_cloud_label" "bench.f90" )
+target_link_libraries( "bench_cloud_label" cloud_label)
 
 install(TARGETS cloud_label DESTINATION lib)
 
