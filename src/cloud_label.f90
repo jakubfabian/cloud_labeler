@@ -1,87 +1,101 @@
 module m_cloud_label
   implicit none
 
-  character(len=*), parameter :: help="Module to determine the index sets for cloud labels in a 3D Field"
-  integer,parameter :: nil=-1
+  character(len=*), parameter :: help = &
+    "Module to determine the index sets for cloud labels in a 3D Field"
+  integer, parameter :: nil = -1
 
+contains
 
-  contains
+  ! -- Public entry point ------------------------------------------------------
+  subroutine gen_labels(cld, label)
+    logical, intent(in)  :: cld(:,:,:)
+    integer, intent(out) :: label(:,:,:)
 
-    subroutine gen_labels(cld, label)
-      logical, intent(in) :: cld(:,:,:)
+    integer :: i, j, k, ilabel, Nx, Ny, Nz
+    integer, allocatable :: stack(:)
 
-      integer, intent(out) :: label(:,:,:)
+    Nx = size(cld, 1);  Ny = size(cld, 2);  Nz = size(cld, 3)
+    label = nil
+    ilabel = 0
 
-      integer :: i,j,k, ilabel
-      integer :: Nx, Ny, Nz
+    ! Allocate the DFS stack once per call rather than once per component.
+    ! Worst-case depth: every neighbour of every cell pushed before any pop
+    ! -> 6 * (total cells).
+    allocate(stack(6 * Nx * Ny * Nz))
 
+    do k = 1, Nz
+      do j = 1, Ny
+        do i = 1, Nx
+          if (cld(i,j,k) .and. label(i,j,k) == nil) then
+            call fill_iterative(i, j, k, Nx, Ny, Nz, cld, ilabel, label, stack)
+            ilabel = ilabel + 1
+          end if
+        end do
+      end do
+    end do
 
-      Nx=size(cld,dim=1); Ny=size(cld,dim=2); Nz=size(cld,dim=3)
-      label = nil
+    deallocate(stack)
+  end subroutine
 
-      !print *,'Shape of label:', shape(label)
-      !print *,'Shape of cloud:', shape(cld)
+  ! -- Iterative DFS flood-fill -------------------------------------------------
+  ! Replaces the original recursive fill_stencil.
+  !
+  ! Cell coordinates are packed into a single flat 1-based integer to keep
+  ! the stack as a plain integer array (better cache use, no tuple overhead):
+  !
+  !   flat = i  +  Nx*(j-1)  +  Nx*Ny*(k-1)
+  !
+  ! Changes vs the recursive version:
+  !   * No per-cell subroutine call overhead or implicit call-stack frames.
+  !   * Nx/Ny/Nz and NxNy computed once, not on every "recursive" entry.
+  !   * Cyclic neighbours use a single conditional (merge) instead of two
+  !     integer modulo operations per neighbour.
+  subroutine fill_iterative(i0, j0, k0, Nx, Ny, Nz, cld, ilabel, label, stack)
+    integer, intent(in)    :: i0, j0, k0, Nx, Ny, Nz, ilabel
+    logical, intent(in)    :: cld(Nx, Ny, Nz)
+    integer, intent(inout) :: label(Nx, Ny, Nz)
+    integer, intent(inout) :: stack(:)
 
-      ilabel=0
+    integer :: top, flat, i, j, k, NxNy
+    integer :: im1, ip1, jm1, jp1
 
-      do k=1,Nz
-        do j=1,Ny
-          do i=1,Nx
-            if (cld(i,j,k) .and. label(i,j,k).eq.nil) then
-              call fill_stencil(i,j,k, cld, ilabel, label)
-              ilabel = ilabel+1
-            endif
-          enddo
-        enddo
-      enddo
-    end subroutine
+    NxNy = Nx * Ny
+    top  = 1
+    stack(1) = i0 + Nx*(j0-1) + NxNy*(k0-1)
 
-    recursive subroutine fill_stencil(i,j,k, cld, ilabel, label)
-      logical, intent(in) :: cld(:,:,:)
-      integer, intent(in) :: i,j,k, ilabel
-      integer, intent(inout) :: label(:,:,:)
+    do while (top > 0)
+      flat = stack(top);  top = top - 1
 
-      integer im1, ip1, jm1, jp1, km1, kp1
+      ! Decode 1-based (i, j, k) from flat index
+      k = (flat - 1) / NxNy  + 1
+      j = (flat - 1 - NxNy*(k-1)) / Nx + 1
+      i =  flat - Nx*(j-1) - NxNy*(k-1)
 
-      integer :: Nx, Ny, Nz
+      if (.not. cld(i,j,k) .or. label(i,j,k) /= nil) cycle
 
-      Nx=size(cld,dim=1); Ny=size(cld,dim=2); Nz=size(cld,dim=3)
+      label(i,j,k) = ilabel
 
-      km1 = max(1, k-1); kp1 = min(ubound(cld,3), k+1)
-      jm1 = cyclic(j-1, Ny); jp1 = cyclic(j+1, Ny)
-      im1 = cyclic(i-1, Nx); ip1 = cyclic(i+1, Nx)
+      ! X neighbours - cyclic boundary
+      im1 = merge(Nx, i-1, i == 1)
+      ip1 = merge(1,  i+1, i == Nx)
+      ! Y neighbours - cyclic boundary
+      jm1 = merge(Ny, j-1, j == 1)
+      jp1 = merge(1,  j+1, j == Ny)
 
-      if (label(i, j, k).eq.ilabel) return ! have been here already
-      if (label(i, j, k).ne.nil) then
-        print *,i ,j, k, ':', ilabel, '::', label(i, j, k)
-        stop 'already has a label! that should not happen?'
-      endif
+      top = top + 1;  stack(top) = im1 + Nx*(j-1)   + NxNy*(k-1)
+      top = top + 1;  stack(top) = ip1 + Nx*(j-1)   + NxNy*(k-1)
+      top = top + 1;  stack(top) = i   + Nx*(jm1-1) + NxNy*(k-1)
+      top = top + 1;  stack(top) = i   + Nx*(jp1-1) + NxNy*(k-1)
+      if (k > 1)  then;  top = top + 1;  stack(top) = i + Nx*(j-1) + NxNy*(k-2);  end if
+      if (k < Nz) then;  top = top + 1;  stack(top) = i + Nx*(j-1) + NxNy*k;      end if
+    end do
+  end subroutine
 
-      if (cld(i, j, k)) label(i, j, k) = ilabel
-
-      if (cld(im1, j, k)) then
-        call fill_stencil(im1,j,k, cld, ilabel, label)
-      endif
-      if (cld(ip1, j, k)) then
-        call fill_stencil(ip1,j,k, cld, ilabel, label)
-      endif
-      if (cld(i  , jm1, k  )) then
-        call fill_stencil(i,jm1,k, cld, ilabel, label)
-      endif
-      if (cld(i  , jp1, k  )) then
-        call fill_stencil(i,jp1,k, cld, ilabel, label)
-      endif
-      if (cld(i  , j  , km1)) then
-        call fill_stencil(i,j,km1, cld, ilabel, label)
-      endif
-      if (cld(i  , j  , kp1)) then
-        call fill_stencil(i,j,kp1, cld, ilabel, label)
-      endif
-    end subroutine
-
-    pure integer function cyclic(i,N)
-      integer,intent(in) :: i, N
-      cyclic = modulo(modulo(i-1, N) + N, N)+1
-    end function
+  ! Kept for the Python f2py interface and backwards compatibility.
+  pure integer function cyclic(i, N)
+    integer, intent(in) :: i, N
+    cyclic = modulo(modulo(i-1, N) + N, N) + 1
+  end function
 
 end module
