@@ -1,0 +1,16 @@
+# CMake build directory
+build/
+
+# Fortran compiled binaries
+bin/
+
+# Rust build artifacts
+rust/target/
+
+# Python bytecode and extension build temps
+__pycache__/
+*.pyc
+*.pyo
+
+# f2py build temps (meson puts these in /tmp, but just in case)
+*.mod
