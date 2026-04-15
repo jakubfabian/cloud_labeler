@@ -1,0 +1,34 @@
+[package]
+name = "cloud_labeler"
+version = "0.1.0"
+edition = "2024"
+description = "Rust port of the Fortran cloud_labeler — 3D connected component labeling"
+
+[lib]
+name = "cloud_labeler"
+# rlib  → used by the bench binary and cargo test
+# cdylib → compiled into cloud_labeler_rs.so for Python
+crate-type = ["rlib", "cdylib"]
+
+[[bin]]
+name = "cloud_labeler"
+path = "src/main.rs"
+
+[[bench]]
+name = "labeler"
+harness = false
+
+# ── Optional Python extension (enabled by CMake with --features python) ──────
+[features]
+default = []
+python = ["dep:pyo3", "dep:numpy"]
+
+[dependencies]
+# PyO3 + numpy are only compiled in when the `python` feature is active.
+# `extension-module` tells PyO3 not to link libpython into the .so
+# (the running interpreter already has it).
+pyo3  = { version = "0.22", optional = true, features = ["extension-module"] }
+numpy = { version = "0.22", optional = true }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
